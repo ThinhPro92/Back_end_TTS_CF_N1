@@ -4,6 +4,7 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
+    "seed": "node scripts/seed.js",
     "start": "node index.js",
     "dev": "nodemon index.js",
     "prettier": "prettier --check .",

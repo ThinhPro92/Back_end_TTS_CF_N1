@@ -35,6 +35,9 @@ app.use(notFoundHandler);
 // Middleware xử lý lỗi chung
 app.use(errorHandler);
 
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
 const server = app.listen(PORT, () => {
 	console.log(`Server is running on: http://localhost:${PORT}/api`);
 	console.log(`Swagger Docs available at http://localhost:${PORT}/api-docs`);

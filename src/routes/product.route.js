@@ -1,21 +1,48 @@
 import express from "express";
 import * as productController from "../controllers/productController.js";
+import jwtMiddleware from "../middlewares/jwt.middleware.js";
+import validate from "../middlewares/validate.js";
+import checkRole from "../middlewares/checkRole.js"; // ✅ Thay thế
+import { validateCreateProduct } from "../validations/product.validation.js";
 
 const router = express.Router();
 
-// Lấy tất cả sản phẩm
 router.get("/", productController.getAll);
-
-// Tạo mới sản phẩm
-router.post("/", productController.create);
-
-// Lấy chi tiết theo ID
 router.get("/:id", productController.getById);
 
-// Cập nhật sản phẩm
-router.put("/:id", productController.update);
+// Chỉ admin có quyền thêm/sửa/xoá
+router.post(
+  "/",
+  jwtMiddleware,
+  checkRole(["admin"]),
+  validateCreateProduct,
+  validate,
+  productController.create
+);
 
-// Xoá mềm sản phẩm
-router.delete("/:id", productController.softDelete);
+router.put(
+  "/:id",
+  jwtMiddleware,
+  checkRole(["admin"]),
+  productController.update
+);
 
+router.delete(
+  "/:id",
+  jwtMiddleware,
+  checkRole(["admin"]),
+  productController.softDelete
+);
+router.put(
+  "/:id/restore",
+  jwtMiddleware,
+  checkRole(["admin", "staff"]),
+  productController.restore
+);
+router.delete(
+  "/:id/permanent",
+  jwtMiddleware,
+  checkRole(["admin"]),
+  productController.deletePermanently
+);
 export default router;
