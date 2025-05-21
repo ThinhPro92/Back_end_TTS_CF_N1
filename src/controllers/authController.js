@@ -1,25 +1,54 @@
 import User from "../models/User.js";
+import Role from "../models/Role.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { JWT_SECRET } from "../configs/enviroments.js";
+import { JWT_SECRET, JWT_REFRESH_SECRET, RESET_PASSWORD_SECRET, RESET_PASSWORD_EXPIRES, FRONTEND_URL } from "../configs/enviroments.js";
+import { sendEmail } from "../utils/sendMail.js";
+import { successResponse, errorResponse } from "../utils/responseFormatter.js";
 
-// Đăng ký
+// Đăng ký người dùng
 export const register = async (req, res) => {
   try {
-    const { email, password, name } = req.body;
+    const { email, password, name, roleId } = req.body;
 
+    // Kiểm tra email đã tồn tại
     const existingUser = await User.findOne({ email });
     if (existingUser) {
-      return res.status(400).json({ message: "Email đã tồn tại" });
+      return res.status(400).json(errorResponse("Email đã tồn tại"));
     }
 
+    // Mã hóa mật khẩu
     const hashed = await bcrypt.hash(password, 10);
-    const user = new User({ email, name, password: hashed });
+    // Gán vai trò mặc định là client nếu không có roleId
+    const defaultRole = roleId || (await Role.findOne({ name: "client" }))?._id;
+    if (!defaultRole) {
+      return res.status(400).json(errorResponse("Vai trò mặc định không tồn tại"));
+    }
 
-    await user.save();
-    res.status(201).json({ message: "Đăng ký thành công" });
+    // Tạo người dùng mới
+    const user = new User({ email, name, password: hashed, roleId: defaultRole });
+    const savedUser = await user.save();
+
+    // Tạo token truy cập
+    const accessToken = jwt.sign(
+      { id: savedUser._id, role: { name: savedUser.roleId?.name || "client" } },
+      JWT_SECRET,
+      { expiresIn: "1d" }
+    );
+
+    return res.status(201).json(
+      successResponse("Đăng ký thành công", {
+        user: {
+          _id: savedUser._id,
+          name: savedUser.name,
+          email: savedUser.email,
+          role: savedUser.roleId?.name || "client",
+        },
+        token: accessToken,
+      })
+    );
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    return res.status(400).json(errorResponse(err.message));
   }
 };
 
@@ -28,40 +57,132 @@ export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    // Tìm người dùng theo email
     const user = await User.findOne({ email }).populate("roleId");
-    if (!user) return res.status(404).json({ message: "Không tìm thấy người dùng" });
+    if (!user) {
+      return res.status(404).json(errorResponse("Không tìm thấy người dùng"));
+    }
 
+    // Kiểm tra mật khẩu
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(401).json({ message: "Sai mật khẩu" });
+    if (!isMatch) {
+      return res.status(401).json(errorResponse("Sai mật khẩu"));
+    }
 
-    const accessToken = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "1d" });
+    // Tạo token truy cập và làm mới
+    const accessToken = jwt.sign(
+      { id: user._id, role: { name: user.roleId?.name || "client" } },
+      JWT_SECRET,
+      { expiresIn: "1d" }
+    );
+    const refreshToken = jwt.sign(
+      { id: user._id, role: { name: user.roleId?.name || "client" } },
+      JWT_REFRESH_SECRET,
+      { expiresIn: "60d" }
+    );
 
-    res.json({
-      message: "Đăng nhập thành công",
-      token: accessToken,
-      user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.roleId?.name || "client"
-      }
-    });
+    return res.json(
+      successResponse("Đăng nhập thành công", {
+        token: accessToken,
+        refreshToken,
+        user: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.roleId?.name || "client",
+        },
+      })
+    );
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    return res.status(500).json(errorResponse(err.message));
   }
 };
 
 // Đăng xuất
 export const logout = (req, res) => {
-  res.json({ message: "Đăng xuất thành công" });
+  return res.json(successResponse("Đăng xuất thành công"));
 };
 
 // Quên mật khẩu
 export const forgotPassword = async (req, res) => {
-  res.status(501).json({ message: "Tính năng đang phát triển" });
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json(errorResponse("Không tìm thấy người dùng"));
+    }
+
+    // Tạo token đặt lại mật khẩu
+    const resetToken = jwt.sign({ id: user._id }, RESET_PASSWORD_SECRET, { expiresIn: RESET_PASSWORD_EXPIRES });
+
+    const resetLink = `${FRONTEND_URL}/reset-password?token=${resetToken}`;
+
+    // Gửi email đặt lại mật khẩu
+    await sendEmail(
+      email,
+      "Đặt lại mật khẩu",
+      `Nhấp vào liên kết sau để đặt lại mật khẩu: ${resetLink}`,
+      `<p>Nhấp vào <a href="${resetLink}">liên kết này</a> để đặt lại mật khẩu. Liên kết sẽ hết hạn sau ${RESET_PASSWORD_EXPIRES}.</p>`
+    );
+
+    return res.json(successResponse("Email đặt lại mật khẩu đã được gửi"));
+  } catch (err) {
+    return res.status(500).json(errorResponse(err.message));
+  }
 };
 
-// Reset mật khẩu
+// Đặt lại mật khẩu
 export const resetPassword = async (req, res) => {
-  res.status(501).json({ message: "Tính năng đang phát triển" });
+  try {
+    const { token, password } = req.body;
+
+    // Xác minh token đặt lại
+    const decoded = jwt.verify(token, RESET_PASSWORD_SECRET);
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      return res.status(404).json(errorResponse("Người dùng không tồn tại"));
+    }
+
+    // Mã hóa mật khẩu mới
+    const hashed = await bcrypt.hash(password, 10);
+    user.password = hashed;
+    await user.save();
+
+    return res.json(successResponse("Mật khẩu đã được đặt lại thành công"));
+  } catch (err) {
+    return res.status(400).json(errorResponse("Token không hợp lệ hoặc đã hết hạn"));
+  }
+};
+
+// Làm mới token
+export const refreshToken = async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+    if (!refreshToken) {
+      return res.status(401).json(errorResponse("Không tìm thấy refresh token"));
+    }
+
+    // Xác minh refresh token
+    const decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET);
+    const user = await User.findById(decoded.id).populate("roleId");
+    if (!user) {
+      return res.status(404).json(errorResponse("Người dùng không tồn tại"));
+    }
+
+    // Tạo token truy cập mới
+    const accessToken = jwt.sign(
+      { id: user._id, role: { name: user.roleId?.name || "client" } },
+      JWT_SECRET,
+      { expiresIn: "1d" }
+    );
+
+    return res.json(
+      successResponse("Làm mới token thành công", {
+        token: accessToken,
+        refreshToken,
+      })
+    );
+  } catch (err) {
+    return res.status(403).json(errorResponse("Refresh token không hợp lệ"));
+  }
 };
