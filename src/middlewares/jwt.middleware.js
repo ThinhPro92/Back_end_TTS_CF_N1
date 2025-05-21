@@ -3,24 +3,27 @@ import createError from "../utils/createError.js";
 import { JWT_SECRET } from "../configs/enviroments.js";
 import User from "../models/User.js";
 
+// Middleware xác thực JWT
 const jwtMiddleware = async (req, res, next) => {
   try {
+    // Lấy token từ cookie hoặc header Authorization
     const token = req.cookies?.accessToken || req.headers.authorization?.split(" ")[1];
-
     if (!token) return next(createError(401, "Bạn cần phải đăng nhập"));
 
+    // Xác minh token
     const decoded = jwt.verify(token, JWT_SECRET);
-    const userId = decoded.userId || decoded.id;
-
-    const user = await User.findById(userId).populate("roleId");
-
+    // Tìm người dùng theo ID và lấy thông tin vai trò
+    const user = await User.findById(decoded.id).populate("roleId");
     if (!user) return next(createError(401, "Tài khoản không tồn tại"));
 
+    // Gán thông tin người dùng vào req
     req.user = {
       _id: user._id,
       name: user.name,
       email: user.email,
-      role: user.roleId, // ví dụ: { _id: ..., name: "admin", description: ... }
+      role: {
+        name: user.roleId?.name || "client", // Mặc định là client nếu không có vai trò
+      },
     };
 
     next();
