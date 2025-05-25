@@ -1,12 +1,35 @@
 import Brand from "../models/Brand.js";
+import { successResponse, errorResponse } from "../utils/responseFormatter.js";
 
-// Lấy danh sách thương hiệu
-const getAll = async (req, res) => {
+// Lấy danh sách thương hiệu (hỗ trợ tìm kiếm và phân trang)
+const getBrands = async (req, res) => {
   try {
-    const brands = await Brand.find({ isDeleted: false });
-    res.json(brands);
+    const { page = 1, limit = 10, search } = req.query;
+
+    const filter = { isDeleted: false };
+    if (search) {
+      filter.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { description: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const total = await Brand.countDocuments(filter);
+    const brands = await Brand.find(filter)
+      .skip((page - 1) * limit)
+      .limit(Number(limit))
+      .sort({ createdAt: -1 });
+
+    return res.json(
+      successResponse("Lấy danh sách thương hiệu thành công", {
+        total,
+        page: Number(page),
+        limit: Number(limit),
+        brands,
+      })
+    );
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    return res.status(500).json(errorResponse(err.message));
   }
 };
 
@@ -14,12 +37,16 @@ const getAll = async (req, res) => {
 const getById = async (req, res) => {
   try {
     const brand = await Brand.findById(req.params.id);
+
     if (!brand || brand.isDeleted) {
-      return res.status(404).json({ message: "Không tìm thấy thương hiệu" });
+      return res.status(404).json(errorResponse("Không tìm thấy thương hiệu"));
     }
-    res.json(brand);
+
+    return res.json(
+      successResponse("Lấy chi tiết thương hiệu thành công", brand)
+    );
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    return res.status(500).json(errorResponse(err.message));
   }
 };
 
@@ -28,36 +55,93 @@ const create = async (req, res) => {
   try {
     const newBrand = new Brand(req.body);
     const saved = await newBrand.save();
-    res.status(201).json(saved);
+    return res.status(201).json(
+      successResponse("Tạo thương hiệu thành công", saved)
+    );
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    return res.status(400).json(errorResponse(err.message));
   }
 };
 
 // Cập nhật thương hiệu
 const update = async (req, res) => {
   try {
+    const brand = await Brand.findById(req.params.id);
+    if (!brand || brand.isDeleted) {
+      return res.status(404).json(errorResponse("Không tìm thấy thương hiệu"));
+    }
+
     const updated = await Brand.findByIdAndUpdate(req.params.id, req.body, {
       new: true,
     });
-    res.json(updated);
+    return res.json(
+      successResponse("Cập nhật thương hiệu thành công", updated)
+    );
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    return res.status(400).json(errorResponse(err.message));
   }
 };
 
-// Xoá mềm thương hiệu
+// Xóa mềm thương hiệu
 const softDelete = async (req, res) => {
   try {
+    const brand = await Brand.findById(req.params.id);
+    if (!brand || brand.isDeleted) {
+      return res.status(404).json(errorResponse("Không tìm thấy thương hiệu"));
+    }
+
     const deleted = await Brand.findByIdAndUpdate(
       req.params.id,
       { isDeleted: true, deletedAt: new Date() },
       { new: true }
     );
-    res.json({ message: "Đã xoá thương hiệu", deleted });
+    return res.json(
+      successResponse("Đã xóa thương hiệu", { deleted })
+    );
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    return res.status(400).json(errorResponse(err.message));
   }
 };
 
-export { getAll, getById, create, update, softDelete };
+// Khôi phục thương hiệu
+const restore = async (req, res) => {
+  try {
+    const brand = await Brand.findById(req.params.id);
+    if (!brand) {
+      return res.status(404).json(errorResponse("Không tìm thấy thương hiệu"));
+    }
+    if (!brand.isDeleted) {
+      return res.status(400).json(errorResponse("Thương hiệu chưa bị xóa mềm"));
+    }
+
+    const restored = await Brand.findByIdAndUpdate(
+      req.params.id,
+      { isDeleted: false, deletedAt: null },
+      { new: true }
+    );
+    return res.json(
+      successResponse("Khôi phục thương hiệu thành công", { restored })
+    );
+  } catch (err) {
+    return res.status(500).json(errorResponse(err.message));
+  }
+};
+
+// Xóa vĩnh viễn thương hiệu
+const deletePermanently = async (req, res) => {
+  try {
+    const brand = await Brand.findById(req.params.id);
+    if (!brand) {
+      return res.status(404).json(errorResponse("Không tìm thấy thương hiệu để xóa"));
+    }
+
+    const deleted = await Brand.findByIdAndDelete(req.params.id);
+    return res.json(
+      successResponse("Đã xóa vĩnh viễn thương hiệu", { deleted })
+    );
+  } catch (err) {
+    return res.status(500).json(errorResponse(err.message));
+  }
+};
+
+export { getBrands, getById, create, update, softDelete, restore, deletePermanently };

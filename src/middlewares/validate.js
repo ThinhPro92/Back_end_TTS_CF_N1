@@ -1,5 +1,6 @@
 import { validationResult } from "express-validator";
 
+// Middleware xác thực dữ liệu đầu vào
 const validate = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
