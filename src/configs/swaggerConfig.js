@@ -2,18 +2,16 @@ import swaggerJSDoc from "swagger-jsdoc";
 import swaggerUi from "swagger-ui-express";
 
 const options = {
-  definition: {
-    openapi: "3.0.0",
+  swaggerDefinition: {
+    swagger: "2.0", // Sử dụng Swagger 2.0 để đồng bộ với swaggerOutput.json
     info: {
       title: "GUYFORM API",
       version: "1.0.0",
       description: "API document for GUYFORM e-commerce platform",
     },
-    servers: [
-      {
-        url: "http://localhost:3000/api",
-      },
-    ],
+    host: "localhost:3000",
+    basePath: "/api",
+    schemes: ["http"],
   },
   apis: ["./src/routes/*.js"], // Đọc các file route
 };
